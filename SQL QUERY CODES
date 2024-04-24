@@ -1,0 +1,293 @@
+-- PROJECT NAME: Salary Analysis of Data & Software Professionals
+-- MAIN AIM: TO FIND OUT WHICH COUNTRIES HAVE THE HIGHEST SALARY 
+-- DATA SOURCE: GLASSDOOR 
+
+
+-- DATABASE AND TABLES CREATION 
+
+CREATE DATABASE professionals_information;
+
+USE professionals_information;
+
+CREATE TABLE participant_info(
+    participant_id VARCHAR(20) PRIMARY KEY,
+    company_id VARCHAR(20) NOT NULL,
+    job_title VARCHAR(50),
+    salary INT,
+    country_code CHAR(3) NOT NULL
+);
+
+ALTER TABLE participant_info
+ADD CONSTRAINT FK_ParticipantCompany 
+FOREIGN KEY (company_id) 
+REFERENCES company_info(company_id),
+
+ADD CONSTRAINT FK_ParticipantJob 
+FOREIGN KEY (job_title) 
+REFERENCES job_info(job_title),
+
+ADD CONSTRAINT FK_ParticipantCountry 
+FOREIGN KEY (country_code) 
+REFERENCES country_info(country_code)
+;
+
+
+CREATE TABLE company_info(
+    company_id VARCHAR(20) PRIMARY KEY,
+    company_name VARCHAR(50) NOT NULL,
+    industry_type VARCHAR(50),
+    company_size INT
+);
+
+
+CREATE TABLE job_info(
+    job_title VARCHAR(50) PRIMARY KEY,
+    job_level VARCHAR(20) NOT NULL
+);
+
+
+CREATE TABLE country_info(
+    country_code CHAR(3) PRIMARY KEY,
+    country_name VARCHAR(50) NOT NULL,
+    currency_code CHAR(3)
+);
+
+INSERT INTO country_info (country_code, country_name, currency_code)
+VALUES 
+('GBR', 'United Kingdom', 'GBP'),
+('USA', 'United States', 'USD'),
+('IRL', 'Ireland', 'EUR'),
+('AUS', 'Australia', 'AUD'),
+('CAN', 'Canada', 'CAD'),
+('DEU', 'Germany', 'EUR'),
+('CHE', 'Switzerland', 'CHF');
+
+ALTER TABLE country_info
+ADD CONSTRAINT FK_CountryCurrency
+FOREIGN KEY (currency_code) 
+REFERENCES currency_info(currency_code);
+
+
+CREATE TABLE currency_info(
+    currency_code CHAR(3) PRIMARY KEY,
+    currency_name VARCHAR(50) NOT NULL,
+    gbp_conversion DECIMAL(3, 2)
+);
+
+INSERT INTO currency_info(currency_code, currency_name, gbp_conversion)
+VALUES 
+('GBP', 'Pound Sterling', 1.00),
+('USD', 'US Dollar', 0.80),
+('EUR', 'Euro', 0.85),
+('AUD', 'Australian Dollar', 0.51),
+('CAD', 'Canadian Dollar', 0.58),
+('CHF', 'Swiss Franc', 0.88);
+
+
+-- CREATE A STORED PROCEDURE TO RETURN THE FIRST 10 ROWS OF ANY TABLE 
+
+DELIMITER //
+
+CREATE PROCEDURE first_ten_rows(
+    IN table_name VARCHAR(30)
+)
+BEGIN
+    SET @sql = CONCAT('SELECT * FROM ', table_name, ' LIMIT 10;');
+    
+    PREPARE stmt 
+    FROM @sql;
+    EXECUTE stmt;
+    DEALLOCATE PREPARE stmt;
+END//
+
+DELIMITER ;
+
+
+-- STORED PROCEDURE TO CHECK LENGTH OF EACH DATAFRAME
+
+DELIMITER //
+
+CREATE PROCEDURE total_rows(
+    IN table_name VARCHAR(30)
+)
+BEGIN
+    SET @sql = CONCAT('SELECT COUNT(*) FROM ', table_name);
+    
+    PREPARE stmt 
+    FROM @sql;
+    EXECUTE stmt;
+    DEALLOCATE PREPARE stmt;
+END//
+
+DELIMITER ; 
+
+CALL first_ten_rows('participant_info');
+CALL total_rows('participant_info')
+
+
+-- CREATE A VIEW TABLE TO COMBINE ALL INFORMATION 
+
+CREATE VIEW combined_info AS
+SELECT 
+    p.participant_id,
+    p.company_id,
+    p.job_title,
+    p.country_code,
+    p.salary,
+    c.company_name,
+    c.industry_type,
+    c.company_size,
+    co.country_name,
+    co.currency_code,
+    cu.currency_name,
+    cu.gbp_conversion,
+    j.job_level
+FROM 
+    participant_info p
+INNER JOIN 
+    company_info c ON p.company_id = c.company_id
+INNER JOIN 
+    country_info co ON p.country_code = co.country_code
+INNER JOIN 
+    currency_info cu ON co.currency_code = cu.currency_code
+INNER JOIN 
+    job_info j ON p.job_title = j.job_title;
+
+
+-- CHECKING THE COMPANIES PRESENT IN MORE THAN 1 COUNTRIES 
+    
+SELECT 
+    company_name,
+    COUNT(DISTINCT country_code) AS num_countries
+FROM 
+    combined_info 
+GROUP BY 
+    company_name
+HAVING 
+    num_countries > 1;
+
+
+-- CREATE FUNCTION TO CONVERT ALL SALARIES TO GBP 
+
+DELIMITER //
+
+CREATE FUNCTION convert_to_gbp(salary_in_currency INT, conversion_rate DECIMAL(3, 2))
+RETURNS INT
+DETERMINISTIC
+BEGIN
+    DECLARE salary_in_gbp INT;
+    SET salary_in_gbp = CEILING(salary_in_currency * conversion_rate);
+    RETURN salary_in_gbp;
+END //
+
+DELIMITER ;
+
+
+-- CREATE ANOTHER VIEW TABLE THAT SELECTS COMPANIES PRESENT IN > 1 COUNTRIES
+--  AND USES THE FUNCTION TO CREATE A NEW COLUMN WITH GBP SALARIES.
+
+CREATE VIEW most_company AS
+SELECT 
+    company_name,
+    job_title,
+    country_code,
+    salary,
+    convert_to_gbp(salary, gbp_conversion) AS gbp_salary
+FROM 
+    combined_info
+WHERE 
+    company_id IN (
+        SELECT 
+            company_id
+        FROM 
+            company_info
+        WHERE 
+            company_name IN ('amazon', 'meta', 'microsoft', 'ibm', 'google')
+    );
+
+SELECT 
+	country_code, 
+    job_title, 
+    ROUND(AVG(gbp_salary)) AS total_salary
+FROM 
+	most_company
+GROUP BY 
+	country_code, 
+    job_title
+ORDER BY 
+	total_salary DESC;
+
+
+-- CREATE A NEW TABLE FROM THE EXISTING TABLE FOR JUST SALARIES  
+--- CREATE TRIGGER PROCESS   
+
+CREATE TABLE participant_salaries AS
+SELECT 
+	p.participant_id, 
+    p.company_id, 
+    p.country_code, 
+    p.salary,
+    co.currency_code,
+    cu.gbp_conversion,
+    convert_to_gbp(p.salary, cu.gbp_conversion) AS gbp_salary
+FROM participant_info p
+INNER JOIN 
+    country_info co ON p.country_code = co.country_code
+INNER JOIN 
+    currency_info cu ON co.currency_code = cu.currency_code;
+
+ALTER TABLE participant_salaries
+
+ADD CONSTRAINT FK_participants 
+FOREIGN KEY (participant_id) 
+REFERENCES participant_info(participant_id),
+
+ADD CONSTRAINT FK_companies
+FOREIGN KEY (company_id) 
+REFERENCES company_info(company_id),
+
+ADD CONSTRAINT FK_countries 
+FOREIGN KEY (country_code) 
+REFERENCES country_info(country_code)
+;
+
+
+-- TRIGGER PROCESS TO CONVERT UPDATED SALARIES INTO GBP 
+
+DELIMITER //
+
+CREATE TRIGGER calculate_gbp_salary
+BEFORE UPDATE ON participant_salaries
+FOR EACH ROW
+BEGIN
+    DECLARE gbp_conv DECIMAL(3, 2);
+    SELECT gbp_conversion INTO gbp_conv
+    FROM currency_info
+    WHERE currency_code = NEW.currency_code;
+
+    SET NEW.gbp_salary = ROUND(NEW.salary * gbp_conv);
+END //
+
+DELIMITER ;
+
+SHOW TRIGGERS;
+
+
+-- CONFIRM THAT TRIGGER WORKS AS DESIGNED
+
+SELECT country_code, salary, gbp_salary
+FROM participant_salaries
+WHERE participant_id = 'PT0275';
+
+UPDATE participant_salaries
+SET salary = 106700
+WHERE participant_id = 'PT0275';
+
+SELECT country_code, salary, gbp_salary
+FROM participant_salaries
+WHERE participant_id = 'PT0275';
+
+
+
+
+
