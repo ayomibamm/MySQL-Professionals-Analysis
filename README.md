@@ -54,7 +54,7 @@ The database schema consists of five main tables:
 4. Populate the tables with your data.
 5. Adjust any configuration parameters in the script to match your environment if necessary.
 
-**Note:** If you require the data used in this project, please reach out to me via my LinkedIn profile, and I will provide the CSV files.
+**Note:** If you require the data used in this project, please reach out to me via my LinkedIn [www.linkedin.com/in/ayomide-bammeke] profile, and I will provide the CSV files.
 
 ## Usage
 - Execute the provided SQL queries to analyze salary data across different dimensions.
